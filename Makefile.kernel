@@ -1,0 +1,3 @@
+CPPFLAGS_BACKEND=-DUSE_INTERNAL_ARGON2
+LDLIBS_BACKEND=-lpthread
+SOURCES_BACKEND=crypto_kernel.c pbkdf2_generic.c
