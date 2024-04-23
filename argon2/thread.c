@@ -8,8 +8,8 @@
  * License/Waiver or the Apache Public License 2.0, at your option. The terms of
  * these licenses can be found at:
  *
- * - CC0 1.0 Universal : http://creativecommons.org/publicdomain/zero/1.0
- * - Apache 2.0        : http://www.apache.org/licenses/LICENSE-2.0
+ * - CC0 1.0 Universal : https://creativecommons.org/publicdomain/zero/1.0
+ * - Apache 2.0        : https://www.apache.org/licenses/LICENSE-2.0
  *
  * You should have received a copy of both of these licenses along with this
  * software. If not, they may be obtained at the above URLs.
@@ -43,14 +43,6 @@ int argon2_thread_join(argon2_thread_handle_t handle) {
     return -1;
 #else
     return pthread_join(handle, NULL);
-#endif
-}
-
-void argon2_thread_exit(void) {
-#if defined(_WIN32)
-    _endthreadex(0);
-#else
-    pthread_exit(NULL);
 #endif
 }
 

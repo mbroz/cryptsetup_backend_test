@@ -8,8 +8,8 @@
  * License/Waiver or the Apache Public License 2.0, at your option. The terms of
  * these licenses can be found at:
  *
- * - CC0 1.0 Universal : http://creativecommons.org/publicdomain/zero/1.0
- * - Apache 2.0        : http://www.apache.org/licenses/LICENSE-2.0
+ * - CC0 1.0 Universal : https://creativecommons.org/publicdomain/zero/1.0
+ * - Apache 2.0        : https://www.apache.org/licenses/LICENSE-2.0
  *
  * You should have received a copy of both of these licenses along with this
  * software. If not, they may be obtained at the above URLs.
@@ -120,18 +120,24 @@ void free_memory(const argon2_context *context, uint8_t *memory,
     }
 }
 
-void NOT_OPTIMIZED secure_wipe_memory(void *v, size_t n) {
 #if defined(_MSC_VER) && VC_GE_2005(_MSC_VER)
+void secure_wipe_memory(void *v, size_t n) {
     SecureZeroMemory(v, n);
+}
 #elif defined memset_s
+void secure_wipe_memory(void *v, size_t n) {
     memset_s(v, n, 0, n);
+}
 #elif defined(HAVE_EXPLICIT_BZERO)
+void secure_wipe_memory(void *v, size_t n) {
     explicit_bzero(v, n);
+}
 #else
+void NOT_OPTIMIZED secure_wipe_memory(void *v, size_t n) {
     static void *(*const volatile memset_sec)(void *, int, size_t) = &memset;
     memset_sec(v, 0, n);
-#endif
 }
+#endif
 
 /* Memory clear flag defaults to true. */
 int FLAG_clear_internal_memory = 1;
@@ -273,7 +279,6 @@ static void *fill_segment_thr(void *thread_data)
 {
     argon2_thread_data *my_data = thread_data;
     fill_segment(my_data->instance_ptr, my_data->pos);
-    argon2_thread_exit();
     return 0;
 }
 

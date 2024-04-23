@@ -8,8 +8,8 @@
  * License/Waiver or the Apache Public License 2.0, at your option. The terms of
  * these licenses can be found at:
  *
- * - CC0 1.0 Universal : http://creativecommons.org/publicdomain/zero/1.0
- * - Apache 2.0        : http://www.apache.org/licenses/LICENSE-2.0
+ * - CC0 1.0 Universal : https://creativecommons.org/publicdomain/zero/1.0
+ * - Apache 2.0        : https://www.apache.org/licenses/LICENSE-2.0
  *
  * You should have received a copy of both of these licenses along with this
  * software. If not, they may be obtained at the above URLs.
@@ -57,11 +57,6 @@ int argon2_thread_create(argon2_thread_handle_t *handle,
  * @return 0 if @handle is a valid handle, and joining completed successfully.
 */
 int argon2_thread_join(argon2_thread_handle_t handle);
-
-/* Terminate the current thread. Must be run inside a thread created by
- * argon2_thread_create.
-*/
-void argon2_thread_exit(void);
 
 #endif /* ARGON2_NO_THREADS */
 #endif
