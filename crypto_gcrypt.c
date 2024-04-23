@@ -1,8 +1,8 @@
 /*
  * GCRYPT crypto backend implementation
  *
- * Copyright (C) 2010-2019 Red Hat, Inc. All rights reserved.
- * Copyright (C) 2010-2019 Milan Broz
+ * Copyright (C) 2010-2024 Red Hat, Inc. All rights reserved.
+ * Copyright (C) 2010-2024 Milan Broz
  *
  * This file is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -22,8 +22,8 @@
 #include <string.h>
 #include <stdio.h>
 #include <errno.h>
-#include <assert.h>
 #include <gcrypt.h>
+#include <pthread.h>
 #include "crypto_backend_internal.h"
 
 static int crypto_backend_initialised = 0;
@@ -51,9 +51,14 @@ struct crypt_cipher {
 	} u;
 };
 
+struct hash_alg {
+	const char *name;
+	const char *gcrypt_name;
+};
+
 /*
  * Test for wrong Whirlpool variant,
- * Ref: http://lists.gnupg.org/pipermail/gcrypt-devel/2014-January/002889.html
+ * Ref: https://lists.gnupg.org/pipermail/gcrypt-devel/2014-January/002889.html
  */
 static void crypt_hash_test_whirlpool_bug(void)
 {
@@ -89,8 +94,10 @@ static void crypt_hash_test_whirlpool_bug(void)
 		crypto_backend_whirlpool_bug = 1;
 }
 
-int crypt_backend_init(struct crypt_device *ctx)
+int crypt_backend_init(bool fips __attribute__((unused)))
 {
+	int r;
+
 	if (crypto_backend_initialised)
 		return 0;
 
@@ -99,7 +106,7 @@ int crypt_backend_init(struct crypt_device *ctx)
 			return -ENOSYS;
 		}
 
-/* FIXME: If gcrypt compiled to support POSIX 1003.1e capabilities,
+/* If gcrypt compiled to support POSIX 1003.1e capabilities,
  * it drops all privileges during secure memory initialisation.
  * For now, the only workaround is to disable secure memory in gcrypt.
  * cryptsetup always need at least cap_sys_admin privilege for dm-ioctl
@@ -120,11 +127,13 @@ int crypt_backend_init(struct crypt_device *ctx)
 	crypto_backend_initialised = 1;
 	crypt_hash_test_whirlpool_bug();
 
-	snprintf(version, 64, "gcrypt %s%s%s",
+	r = snprintf(version, sizeof(version), "gcrypt %s%s%s%s",
 		 gcry_check_version(NULL),
 		 crypto_backend_secmem ? "" : ", secmem disabled",
-		 crypto_backend_whirlpool_bug > 0 ? ", flawed whirlpool" : ""
-		);
+		 crypto_backend_whirlpool_bug > 0 ? ", flawed whirlpool" : "",
+		 crypt_backend_flags() & CRYPT_BACKEND_ARGON2 ? ", argon2" : "");
+	if (r < 0 || (size_t)r >= sizeof(version))
+		return -EINVAL;
 
 	return 0;
 }
@@ -144,21 +153,48 @@ const char *crypt_backend_version(void)
 
 uint32_t crypt_backend_flags(void)
 {
-	return 0;
+	uint32_t flags = 0;
+#if HAVE_DECL_GCRY_KDF_ARGON2 && !USE_INTERNAL_ARGON2
+	flags |= CRYPT_BACKEND_ARGON2;
+#endif
+	return flags;
 }
 
 static const char *crypt_hash_compat_name(const char *name, unsigned int *flags)
 {
 	const char *hash_name = name;
+	int i;
+	static struct hash_alg hash_algs[] = {
+	{ "blake2b-160", "blake2b_160" },
+	{ "blake2b-256", "blake2b_256" },
+	{ "blake2b-384", "blake2b_384" },
+	{ "blake2b-512", "blake2b_512" },
+	{ "blake2s-128", "blake2s_128" },
+	{ "blake2s-160", "blake2s_160" },
+	{ "blake2s-224", "blake2s_224" },
+	{ "blake2s-256", "blake2s_256" },
+	{ NULL,          NULL,         }};
+
+	if (!name)
+		return NULL;
 
 	/* "whirlpool_gcryptbug" is out shortcut to flawed whirlpool
 	 * in libgcrypt < 1.6.0 */
-	if (name && !strcasecmp(name, "whirlpool_gcryptbug")) {
+	if (!strcasecmp(name, "whirlpool_gcryptbug")) {
 #if GCRYPT_VERSION_NUMBER >= 0x010601
 		if (flags)
 			*flags |= GCRY_MD_FLAG_BUGEMU1;
 #endif
 		hash_name = "whirlpool";
+	}
+
+	i = 0;
+	while (hash_algs[i].name) {
+		if (!strcasecmp(name, hash_algs[i].name)) {
+			hash_name =  hash_algs[i].gcrypt_name;
+			break;
+		}
+		i++;
 	}
 
 	return hash_name;
@@ -236,7 +272,6 @@ int crypt_hash_final(struct crypt_hash *ctx, char *buffer, size_t length)
 void crypt_hash_destroy(struct crypt_hash *ctx)
 {
 	gcry_md_close(ctx->hd);
-	memset(ctx, 0, sizeof(*ctx));
 	free(ctx);
 }
 
@@ -311,12 +346,11 @@ int crypt_hmac_final(struct crypt_hmac *ctx, char *buffer, size_t length)
 void crypt_hmac_destroy(struct crypt_hmac *ctx)
 {
 	gcry_md_close(ctx->hd);
-	memset(ctx, 0, sizeof(*ctx));
 	free(ctx);
 }
 
 /* RNG */
-int crypt_backend_rng(char *buffer, size_t length, int quality, int fips)
+int crypt_backend_rng(char *buffer, size_t length, int quality, int fips __attribute__((unused)))
 {
 	switch(quality) {
 	case CRYPT_RND_NORMAL:
@@ -356,6 +390,130 @@ static int pbkdf2(const char *hash,
 #endif /* USE_INTERNAL_PBKDF2 */
 }
 
+#if HAVE_DECL_GCRY_KDF_ARGON2 && !USE_INTERNAL_ARGON2
+struct gcrypt_thread_job
+{
+	pthread_t thread;
+	struct job_thread_param {
+		gcry_kdf_job_fn_t job;
+		void *p;
+	} work;
+};
+
+struct gcrypt_threads
+{
+	pthread_attr_t attr;
+	unsigned int num_threads;
+	unsigned int max_threads;
+	struct gcrypt_thread_job *jobs_ctx;
+};
+
+static void *gcrypt_job_thread(void *p)
+{
+	struct job_thread_param *param = p;
+	param->job(param->p);
+	pthread_exit(NULL);
+}
+
+static int gcrypt_wait_all_jobs(void *ctx)
+{
+	unsigned int i;
+	struct gcrypt_threads *threads = ctx;
+
+	for (i = 0; i < threads->num_threads; i++) {
+		pthread_join(threads->jobs_ctx[i].thread, NULL);
+		threads->jobs_ctx[i].thread = 0;
+	}
+
+	threads->num_threads = 0;
+	return 0;
+}
+
+static int gcrypt_dispatch_job(void *ctx, gcry_kdf_job_fn_t job, void *p)
+{
+	struct gcrypt_threads *threads = ctx;
+
+	if (threads->num_threads >= threads->max_threads)
+		return -1;
+
+	threads->jobs_ctx[threads->num_threads].work.job = job;
+	threads->jobs_ctx[threads->num_threads].work.p = p;
+
+	if (pthread_create(&threads->jobs_ctx[threads->num_threads].thread, &threads->attr,
+			   gcrypt_job_thread, &threads->jobs_ctx[threads->num_threads].work))
+		return -1;
+
+	threads->num_threads++;
+	return 0;
+}
+
+static int gcrypt_argon2(const char *type,
+	const char *password, size_t password_length,
+	const char *salt, size_t salt_length,
+	char *key, size_t key_length,
+	uint32_t iterations, uint32_t memory, uint32_t parallel)
+{
+	gcry_kdf_hd_t hd;
+	int atype, r = -EINVAL;
+	unsigned long param[4];
+	struct gcrypt_threads threads = {
+		.max_threads = parallel,
+		.num_threads = 0
+	};
+	const gcry_kdf_thread_ops_t ops = {
+		.jobs_context = &threads,
+		.dispatch_job = gcrypt_dispatch_job,
+		.wait_all_jobs = gcrypt_wait_all_jobs
+	};
+
+	if (!strcmp(type, "argon2i"))
+		atype = GCRY_KDF_ARGON2I;
+	else if (!strcmp(type, "argon2id"))
+		atype = GCRY_KDF_ARGON2ID;
+	else
+		return -EINVAL;
+
+	param[0] = key_length;
+	param[1] = iterations;
+	param[2] = memory;
+	param[3] = parallel;
+
+	if (gcry_kdf_open(&hd, GCRY_KDF_ARGON2, atype, param, 4,
+			password, password_length, salt, salt_length,
+			NULL, 0, NULL, 0)) {
+		free(threads.jobs_ctx);
+		return -EINVAL;
+	}
+
+	if (parallel == 1) {
+		/* Do not use threads here */
+		if (gcry_kdf_compute(hd, NULL))
+			goto out;
+	} else {
+		threads.jobs_ctx = calloc(threads.max_threads,
+				      sizeof(struct gcrypt_thread_job));
+		if (!threads.jobs_ctx)
+			goto out;
+
+		if (pthread_attr_init(&threads.attr))
+			goto out;
+
+		if (gcry_kdf_compute(hd, &ops))
+			goto out;
+	}
+
+	if (gcry_kdf_final(hd, key_length, key))
+		goto out;
+	r = 0;
+out:
+	gcry_kdf_close(hd);
+	pthread_attr_destroy(&threads.attr);
+	free(threads.jobs_ctx);
+
+	return r;
+}
+#endif
+
 /* PBKDF */
 int crypt_pbkdf(const char *kdf, const char *hash,
 		const char *password, size_t password_length,
@@ -370,8 +528,13 @@ int crypt_pbkdf(const char *kdf, const char *hash,
 		return pbkdf2(hash, password, password_length, salt, salt_length,
 			      key, key_length, iterations);
 	else if (!strncmp(kdf, "argon2", 6))
+#if HAVE_DECL_GCRY_KDF_ARGON2 && !USE_INTERNAL_ARGON2
+		return gcrypt_argon2(kdf, password, password_length, salt, salt_length,
+				     key, key_length, iterations, memory, parallel);
+#else
 		return argon2(kdf, password, password_length, salt, salt_length,
 			      key, key_length, iterations, memory, parallel);
+#endif
 	return -EINVAL;
 }
 
@@ -479,3 +642,68 @@ bool crypt_cipher_kernel_only(struct crypt_cipher *ctx)
 {
 	return ctx->use_kernel;
 }
+
+int crypt_bitlk_decrypt_key(const void *key, size_t key_length,
+			    const char *in, char *out, size_t length,
+			    const char *iv, size_t iv_length,
+			    const char *tag, size_t tag_length)
+{
+#ifdef GCRY_CCM_BLOCK_LEN
+	gcry_cipher_hd_t hd;
+	uint64_t l[3];
+	int r = -EINVAL;
+
+	if (gcry_cipher_open(&hd, GCRY_CIPHER_AES256, GCRY_CIPHER_MODE_CCM, 0))
+		return -EINVAL;
+
+	if (gcry_cipher_setkey(hd, key, key_length))
+		goto out;
+
+	if (gcry_cipher_setiv(hd, iv, iv_length))
+		goto out;
+
+	l[0] = length;
+	l[1] = 0;
+	l[2] = tag_length;
+	if (gcry_cipher_ctl(hd, GCRYCTL_SET_CCM_LENGTHS, l, sizeof(l)))
+		goto out;
+
+	if (gcry_cipher_decrypt(hd, out, length, in, length))
+		goto out;
+
+	if (gcry_cipher_checktag(hd, tag, tag_length))
+		goto out;
+
+	r = 0;
+out:
+	gcry_cipher_close(hd);
+	return r;
+#else
+	return -ENOTSUP;
+#endif
+}
+
+int crypt_backend_memeq(const void *m1, const void *m2, size_t n)
+{
+	return crypt_internal_memeq(m1, m2, n);
+}
+
+#if !ENABLE_FIPS
+bool crypt_fips_mode(void) { return false; }
+#else
+bool crypt_fips_mode(void)
+{
+	static bool fips_mode = false, fips_checked = false;
+
+	if (fips_checked)
+		return fips_mode;
+
+	if (crypt_backend_init(false /* ignored */))
+		return false;
+
+	fips_mode = gcry_fips_mode_active();
+	fips_checked = true;
+
+	return fips_mode;
+}
+#endif /* ENABLE FIPS */

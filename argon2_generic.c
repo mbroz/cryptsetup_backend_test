@@ -1,8 +1,8 @@
 /*
  * Argon2 PBKDF2 library wrapper
  *
- * Copyright (C) 2016-2019 Red Hat, Inc. All rights reserved.
- * Copyright (C) 2016-2019 Milan Broz
+ * Copyright (C) 2016-2024 Red Hat, Inc. All rights reserved.
+ * Copyright (C) 2016-2024 Milan Broz
  *
  * This file is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -21,22 +21,23 @@
 
 #include <errno.h>
 #include "crypto_backend_internal.h"
+
+/* Check for HAVE_ARGON2_H is run only if libargon2 code is used */
+#if USE_INTERNAL_ARGON2 || HAVE_ARGON2_H
+
+#define CONST_CAST(x) (x)(uintptr_t)
+
 #if HAVE_ARGON2_H
 #include <argon2.h>
 #else
 #include "argon2/argon2.h"
 #endif
 
-#define CONST_CAST(x) (x)(uintptr_t)
-
 int argon2(const char *type, const char *password, size_t password_length,
 	   const char *salt, size_t salt_length,
 	   char *key, size_t key_length,
 	   uint32_t iterations, uint32_t memory, uint32_t parallel)
 {
-#if !USE_INTERNAL_ARGON2 && !HAVE_ARGON2_H
-	return -EINVAL;
-#else
 	argon2_type atype;
 	argon2_context context = {
 		.flags = ARGON2_DEFAULT_FLAGS,
@@ -53,6 +54,9 @@ int argon2(const char *type, const char *password, size_t password_length,
 		.saltlen = (uint32_t)salt_length,
 	};
 	int r;
+
+	/* This code must not be run if crypt backend library natively supports Argon2 */
+	assert(!(crypt_backend_flags() & CRYPT_BACKEND_ARGON2));
 
 	if (!strcmp(type, "argon2i"))
 		atype = Argon2_i;
@@ -75,5 +79,33 @@ int argon2(const char *type, const char *password, size_t password_length,
 	}
 
 	return r;
+}
+
+#else /* USE_INTERNAL_ARGON2 || HAVE_ARGON2_H */
+#pragma GCC diagnostic ignored "-Wunused-parameter"
+
+int argon2(const char *type, const char *password, size_t password_length,
+	   const char *salt, size_t salt_length,
+	   char *key, size_t key_length,
+	   uint32_t iterations, uint32_t memory, uint32_t parallel)
+{
+	return -EINVAL;
+}
+
 #endif
+
+/* Additional string for crypt backend version */
+const char *crypt_argon2_version(void)
+{
+	const char *version = "";
+
+	if (crypt_backend_flags() & CRYPT_BACKEND_ARGON2)
+		return version;
+
+#if HAVE_ARGON2_H /* this has priority over internal argon2 */
+	version = " [external libargon2]";
+#elif USE_INTERNAL_ARGON2
+	version = " [cryptsetup libargon2]";
+#endif
+	return version;
 }

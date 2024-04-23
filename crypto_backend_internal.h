@@ -1,8 +1,8 @@
 /*
  * crypto backend implementation
  *
- * Copyright (C) 2010-2019 Red Hat, Inc. All rights reserved.
- * Copyright (C) 2010-2019 Milan Broz
+ * Copyright (C) 2010-2024 Red Hat, Inc. All rights reserved.
+ * Copyright (C) 2010-2024 Milan Broz
  *
  * This file is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -23,7 +23,6 @@
 
 #include "crypto_backend.h"
 
-#if USE_INTERNAL_PBKDF2
 /* internal PBKDF2 implementation */
 int pkcs5_pbkdf2(const char *hash,
 		 const char *P, size_t Plen,
@@ -31,7 +30,6 @@ int pkcs5_pbkdf2(const char *hash,
 		 unsigned int c,
 		 unsigned int dkLen, char *DK,
 		 unsigned int hash_block_size);
-#endif
 
 /* Argon2 implementation wrapper */
 int argon2(const char *type, const char *password, size_t password_length,
@@ -55,5 +53,23 @@ int crypt_cipher_decrypt_kernel(struct crypt_cipher_kernel *ctx,
 				const char *in, char *out, size_t length,
 				const char *iv, size_t iv_length);
 void crypt_cipher_destroy_kernel(struct crypt_cipher_kernel *ctx);
+int crypt_bitlk_decrypt_key_kernel(const void *key, size_t key_length,
+				   const char *in, char *out, size_t length,
+				   const char *iv, size_t iv_length,
+				   const char *tag, size_t tag_length);
+
+/* Internal implementation for constant time memory comparison */
+static inline int crypt_internal_memeq(const void *m1, const void *m2, size_t n)
+{
+	const unsigned char *_m1 = (const unsigned char *) m1;
+	const unsigned char *_m2 = (const unsigned char *) m2;
+	unsigned char result = 0;
+	size_t i;
+
+	for (i = 0; i < n; i++)
+		result |= _m1[i] ^ _m2[i];
+
+	return result;
+}
 
 #endif /* _CRYPTO_BACKEND_INTERNAL_H */

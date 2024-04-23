@@ -1,8 +1,8 @@
 /*
  * crypto backend implementation
  *
- * Copyright (C) 2010-2019 Red Hat, Inc. All rights reserved.
- * Copyright (C) 2010-2019 Milan Broz
+ * Copyright (C) 2010-2024 Red Hat, Inc. All rights reserved.
+ * Copyright (C) 2010-2024 Milan Broz
  *
  * This file is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -21,24 +21,33 @@
 #ifndef _CRYPTO_BACKEND_H
 #define _CRYPTO_BACKEND_H
 
+#include <assert.h>
 #include <stdint.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <string.h>
+#ifdef HAVE_UCHAR_H
+#include <uchar.h>
+#else
+#define char32_t uint32_t
+#define char16_t uint16_t
+#endif
 
-struct crypt_device;
 struct crypt_hash;
 struct crypt_hmac;
 struct crypt_cipher;
 struct crypt_storage;
 
-int crypt_backend_init(struct crypt_device *ctx);
+int crypt_backend_init(bool fips);
 void crypt_backend_destroy(void);
 
-#define CRYPT_BACKEND_KERNEL (1 << 0)	/* Crypto uses kernel part, for benchmark */
+#define CRYPT_BACKEND_KERNEL     (1 << 0) /* Crypto uses kernel part, for benchmark */
+#define CRYPT_BACKEND_PBKDF2_INT (1 << 1) /* Iteration in PBKDF2 is signed int and can overflow */
+#define CRYPT_BACKEND_ARGON2     (1 << 2) /* Backend provides native Argon2 implementation */
 
 uint32_t crypt_backend_flags(void);
 const char *crypt_backend_version(void);
+const char *crypt_argon2_version(void);
 
 /* HASH */
 int crypt_hash_size(const char *name);
@@ -63,7 +72,7 @@ int crypt_backend_rng(char *buffer, size_t length, int quality, int fips);
 /* PBKDF*/
 struct crypt_pbkdf_limits {
 	uint32_t min_iterations, max_iterations;
-	uint32_t min_memory, max_memory;
+	uint32_t min_memory, max_memory, min_bench_memory;
 	uint32_t min_parallel, max_parallel;
 };
 
@@ -83,6 +92,15 @@ int crypt_pbkdf_perf(const char *kdf, const char *hash,
 
 /* CRC32 */
 uint32_t crypt_crc32(uint32_t seed, const unsigned char *buf, size_t len);
+uint32_t crypt_crc32c(uint32_t seed, const unsigned char *buf, size_t len);
+
+/* Base64 */
+int crypt_base64_encode(char **out, size_t *out_length, const char *in, size_t in_length);
+int crypt_base64_decode(char **out, size_t *out_length, const char *in, size_t in_length);
+
+/* UTF8/16 */
+int crypt_utf16_to_utf8(char **out, const char16_t *s, size_t length /* bytes! */);
+int crypt_utf8_to_utf16(char16_t **out, const char *s, size_t length);
 
 /* Block ciphers */
 int crypt_cipher_ivsize(const char *name, const char *mode);
@@ -110,7 +128,7 @@ int crypt_cipher_check_kernel(const char *name, const char *mode,
 /* Storage encryption wrappers */
 int crypt_storage_init(struct crypt_storage **ctx, size_t sector_size,
 		       const char *cipher, const char *cipher_mode,
-		       const void *key, size_t key_length);
+		       const void *key, size_t key_length, bool large_iv);
 void crypt_storage_destroy(struct crypt_storage *ctx);
 int crypt_storage_decrypt(struct crypt_storage *ctx, uint64_t iv_offset,
 			  uint64_t length, char *buffer);
@@ -118,6 +136,12 @@ int crypt_storage_encrypt(struct crypt_storage *ctx, uint64_t iv_offset,
 			  uint64_t length, char *buffer);
 
 bool crypt_storage_kernel_only(struct crypt_storage *ctx);
+
+/* Temporary Bitlk helper */
+int crypt_bitlk_decrypt_key(const void *key, size_t key_length,
+			    const char *in, char *out, size_t length,
+			    const char *iv, size_t iv_length,
+			    const char *tag, size_t tag_length);
 
 /* Memzero helper (memset on stack can be optimized out) */
 static inline void crypt_backend_memzero(void *s, size_t n)
@@ -129,5 +153,11 @@ static inline void crypt_backend_memzero(void *s, size_t n)
 	while(n--) *p++ = 0;
 #endif
 }
+
+/* Memcmp helper (memcmp in constant time) */
+int crypt_backend_memeq(const void *m1, const void *m2, size_t n);
+
+/* crypto backend running in FIPS mode */
+bool crypt_fips_mode(void);
 
 #endif /* _CRYPTO_BACKEND_H */

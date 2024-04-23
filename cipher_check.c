@@ -1,8 +1,8 @@
 /*
  * Cipher performance check
  *
- * Copyright (C) 2018-2019 Red Hat, Inc. All rights reserved.
- * Copyright (C) 2018-2019 Milan Broz
+ * Copyright (C) 2018-2024 Red Hat, Inc. All rights reserved.
+ * Copyright (C) 2018-2024 Milan Broz
  *
  * This file is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -22,6 +22,10 @@
 #include <errno.h>
 #include <time.h>
 #include "crypto_backend_internal.h"
+
+#ifndef CLOCK_MONOTONIC_RAW
+#define CLOCK_MONOTONIC_RAW CLOCK_MONOTONIC
+#endif
 
 /*
  * This is not simulating storage, so using disk block causes extreme overhead.

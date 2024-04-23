@@ -1,8 +1,8 @@
 /*
  * Linux kernel cipher generic utilities
  *
- * Copyright (C) 2018-2019 Red Hat, Inc. All rights reserved.
- * Copyright (C) 2018-2019 Milan Broz
+ * Copyright (C) 2018-2024 Red Hat, Inc. All rights reserved.
+ * Copyright (C) 2018-2024 Milan Broz
  *
  * This file is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -31,7 +31,6 @@ struct cipher_alg {
 	bool wrapped_key;
 };
 
-/* FIXME: Getting block size should be dynamic from cipher backend. */
 static const struct cipher_alg cipher_algs[] = {
 	{ "cipher_null", NULL, 16, false },
 	{ "aes",         NULL, 16, false },
@@ -51,6 +50,8 @@ static const struct cipher_alg cipher_algs[] = {
 	{ "paes",        NULL, 16,  true }, /* protected AES, s390 wrapped key scheme */
 	{ "xchacha12,aes", "adiantum", 32, false },
 	{ "xchacha20,aes", "adiantum", 32, false },
+	{ "sm4",         NULL, 16, false },
+	{ "aria",        NULL, 16, false },
 	{ NULL,          NULL,  0, false }
 };
 
@@ -72,7 +73,13 @@ int crypt_cipher_ivsize(const char *name, const char *mode)
 {
 	const struct cipher_alg *ca = _get_alg(name, mode);
 
-	return ca ? ca->blocksize : -EINVAL;
+	if (!ca)
+		return -EINVAL;
+
+	if (mode && !strcasecmp(mode, "ecb"))
+		return 0;
+
+	return ca->blocksize;
 }
 
 int crypt_cipher_wrapped_key(const char *name, const char *mode)

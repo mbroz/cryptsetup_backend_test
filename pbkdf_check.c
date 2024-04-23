@@ -1,8 +1,8 @@
 /*
  * PBKDF performance check
- * Copyright (C) 2012-2019 Red Hat, Inc. All rights reserved.
- * Copyright (C) 2012-2019 Milan Broz
- * Copyright (C) 2016-2019 Ondrej Mosnacek
+ * Copyright (C) 2012-2024 Red Hat, Inc. All rights reserved.
+ * Copyright (C) 2012-2024 Milan Broz
+ * Copyright (C) 2016-2020 Ondrej Mosnacek
  *
  * This file is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -27,6 +27,10 @@
 #include <sys/resource.h>
 #include "crypto_backend.h"
 
+#ifndef CLOCK_MONOTONIC_RAW
+#define CLOCK_MONOTONIC_RAW CLOCK_MONOTONIC
+#endif
+
 #define BENCH_MIN_MS 250
 #define BENCH_MIN_MS_FAST 10
 #define BENCH_PERCENT_ATLEAST 95
@@ -44,6 +48,7 @@ int crypt_pbkdf_get_limits(const char *kdf, struct crypt_pbkdf_limits *limits)
 		limits->min_iterations = 1000; /* recommendation in NIST SP 800-132 */
 		limits->max_iterations = UINT32_MAX;
 		limits->min_memory     = 0; /* N/A */
+		limits->min_bench_memory=0; /* N/A */
 		limits->max_memory     = 0; /* N/A */
 		limits->min_parallel   = 0; /* N/A */
 		limits->max_parallel   = 0; /* N/A */
@@ -51,7 +56,8 @@ int crypt_pbkdf_get_limits(const char *kdf, struct crypt_pbkdf_limits *limits)
 	} else if (!strcmp(kdf, "argon2i") || !strcmp(kdf, "argon2id")) {
 		limits->min_iterations = 4;
 		limits->max_iterations = UINT32_MAX;
-		limits->min_memory     = 32;
+		limits->min_memory     = 32;      /* hard limit */
+		limits->min_bench_memory=64*1024; /* 64 MiB minimum for benchmark */
 		limits->max_memory     = 4*1024*1024; /* 4GiB */
 		limits->min_parallel   = 1;
 		limits->max_parallel   = 4;
@@ -70,7 +76,7 @@ static long time_ms(struct rusage *start, struct rusage *end)
 		count_kernel_time = 1;
 
 	/*
-	 * FIXME: if there is no self usage info, count system time.
+	 * If there is no self usage info, count system time.
 	 * This seem like getrusage() bug in some hypervisors...
 	 */
 	if (!end->ru_utime.tv_sec && !start->ru_utime.tv_sec &&
@@ -151,7 +157,7 @@ static int next_argon2_params(uint32_t *t_cost, uint32_t *m_cost,
 	old_t_cost = *t_cost;
 	old_m_cost = *m_cost;
 
-	if (ms > target_ms) {
+	if ((uint32_t)ms > target_ms) {
 		/* decreasing, first try to lower t_cost, then m_cost */
 		num = (uint64_t)*t_cost * (uint64_t)target_ms;
 		denom = (uint64_t)ms;
@@ -357,8 +363,10 @@ static int crypt_pbkdf_check(const char *kdf, const char *hash,
 		ms = time_ms(&rstart, &rend);
 		if (ms) {
 			PBKDF2_temp = (double)iterations * target_ms / ms;
-			if (PBKDF2_temp > UINT32_MAX)
-				return -EINVAL;
+			if (PBKDF2_temp > UINT32_MAX) {
+				r = -EINVAL;
+				goto out;
+			}
 			*iter_secs = (uint32_t)PBKDF2_temp;
 		}
 
@@ -402,14 +410,18 @@ int crypt_pbkdf_perf(const char *kdf, const char *hash,
 {
 	struct crypt_pbkdf_limits pbkdf_limits;
 	int r = -EINVAL;
+	uint32_t min_memory;
 
 	if (!kdf || !iterations_out || !memory_out)
 		return -EINVAL;
 
-	/* FIXME: whole limits propagation should be more clear here */
 	r = crypt_pbkdf_get_limits(kdf, &pbkdf_limits);
 	if (r < 0)
 		return r;
+
+	min_memory = pbkdf_limits.min_bench_memory;
+	if (min_memory > max_memory_kb)
+		min_memory = max_memory_kb;
 
 	*memory_out = 0;
 	*iterations_out = 0;
@@ -423,7 +435,7 @@ int crypt_pbkdf_perf(const char *kdf, const char *hash,
 		r = crypt_argon2_check(kdf, password, password_size,
 				       salt, salt_size, volume_key_size,
 				       pbkdf_limits.min_iterations,
-				       pbkdf_limits.min_memory,
+				       min_memory,
 				       max_memory_kb,
 				       parallel_threads, time_ms, iterations_out,
 				       memory_out, progress, usrptr);
