@@ -10,7 +10,6 @@ pbkdf_check.c utf8.c \
 $(wildcard argon2/*.c argon2/blake2/*.c)
 
 # select which crypto-library backend to use
-
 include Makefile.openssl
 #include Makefile.gcrypt
 #include Makefile.nettle
@@ -21,8 +20,6 @@ CPPFLAGS+=$(CPPFLAGS_BACKEND)
 CFLAGS+=$(CFLAGS_BACKEND)
 LDLIBS+=$(LDLIBS_BACKEND)
 SOURCES+=$(SOURCES_BACKEND)
-
-#OBJECTS=$(SOURCES:.c=.o)
 
 all: $(TARGET)
 
