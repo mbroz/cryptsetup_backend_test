@@ -2,3 +2,4 @@
 *.la
 *.o
 tst
+crypto_test.a
