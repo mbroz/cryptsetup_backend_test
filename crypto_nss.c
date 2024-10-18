@@ -1,25 +1,12 @@
+// SPDX-License-Identifier: LGPL-2.1-or-later
 /*
  * NSS crypto backend implementation
  *
  * Copyright (C) 2010-2024 Red Hat, Inc. All rights reserved.
  * Copyright (C) 2010-2024 Milan Broz
- *
- * This file is free software; you can redistribute it and/or
- * modify it under the terms of the GNU Lesser General Public
- * License as published by the Free Software Foundation; either
- * version 2.1 of the License, or (at your option) any later version.
- *
- * This file is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
- * Lesser General Public License for more details.
- *
- * You should have received a copy of the GNU Lesser General Public
- * License along with this file; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include <string.h>
+#include <stdio.h>
 #include <errno.h>
 #include <nss.h>
 #include <pk11pub.h>
@@ -177,7 +164,7 @@ int crypt_hash_final(struct crypt_hash *ctx, char *buffer, size_t length)
 	if (PK11_DigestFinal(ctx->md, tmp, &tmp_len, length) != SECSuccess)
 		return -EINVAL;
 
-	memcpy(buffer, tmp, length);
+	crypt_backend_memcpy(buffer, tmp, length);
 	crypt_backend_memzero(tmp, sizeof(tmp));
 
 	if (tmp_len < length)
@@ -220,8 +207,7 @@ int crypt_hmac_init(struct crypt_hmac **ctx, const char *name,
 	h = malloc(sizeof(*h));
 	if (!h)
 		return -ENOMEM;
-	memset(ctx, 0, sizeof(*ctx));
-
+	memset(h, 0, sizeof(*h));
 
 	h->hash = _get_alg(name);
 	if (!h->hash)
@@ -278,7 +264,7 @@ int crypt_hmac_final(struct crypt_hmac *ctx, char *buffer, size_t length)
 	if (PK11_DigestFinal(ctx->md, tmp, &tmp_len, length) != SECSuccess)
 		return -EINVAL;
 
-	memcpy(buffer, tmp, length);
+	crypt_backend_memcpy(buffer, tmp, length);
 	crypt_backend_memzero(tmp, sizeof(tmp));
 
 	if (tmp_len < length)

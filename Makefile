@@ -7,6 +7,7 @@ LDLIBS=
 
 SOURCES=argon2_generic.c base64.c cipher_check.c cipher_generic.c \
 crc32.c crypto_cipher_kernel.c crypto_storage.c pbkdf_check.c utf8.c \
+memutils.c \
 $(wildcard argon2/*.c argon2/blake2/*.c)
 
 TARGET_SOURCES=crypto-vectors.c
@@ -16,6 +17,7 @@ include Makefile.openssl
 #include Makefile.gcrypt
 #include Makefile.nettle
 #include Makefile.nss
+#include Makefile.mbedtls
 #include Makefile.kernel
 
 CPPFLAGS+=$(CPPFLAGS_BACKEND)

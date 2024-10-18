@@ -1,28 +1,13 @@
+// SPDX-License-Identifier: LGPL-2.1-or-later
 /*
  * Linux kernel userspace API crypto backend implementation (skcipher)
  *
  * Copyright (C) 2012-2024 Red Hat, Inc. All rights reserved.
  * Copyright (C) 2012-2024 Milan Broz
- *
- * This file is free software; you can redistribute it and/or
- * modify it under the terms of the GNU Lesser General Public
- * License as published by the Free Software Foundation; either
- * version 2.1 of the License, or (at your option) any later version.
- *
- * This file is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
- * Lesser General Public License for more details.
- *
- * You should have received a copy of the GNU Lesser General Public
- * License along with this file; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
-#include <stdbool.h>
 #include <errno.h>
 #include <unistd.h>
 #include <sys/socket.h>
@@ -101,9 +86,13 @@ int crypt_cipher_init_kernel(struct crypt_cipher_kernel *ctx, const char *name,
 	if (!strcmp(name, "cipher_null"))
 		key_length = 0;
 
-	r = snprintf((char *)sa.salg_name, sizeof(sa.salg_name), "%s(%s)", mode, name);
-	if (r < 0 || (size_t)r >= sizeof(sa.salg_name))
-		return -EINVAL;
+	if (!strncmp(name, "capi:", 5))
+		strncpy((char *)sa.salg_name, &name[5], sizeof(sa.salg_name) - 1);
+	else {
+		r = snprintf((char *)sa.salg_name, sizeof(sa.salg_name), "%s(%s)", mode, name);
+		if (r < 0 || (size_t)r >= sizeof(sa.salg_name))
+			return -EINVAL;
+	}
 
 	return _crypt_cipher_init(ctx, key, key_length, 0, &sa);
 }
@@ -164,7 +153,7 @@ static int _crypt_cipher_crypt(struct crypt_cipher_kernel *ctx,
 		header->cmsg_len = iv_msg_size;
 		alg_iv = (void*)CMSG_DATA(header);
 		alg_iv->ivlen = iv_length;
-		memcpy(alg_iv->iv, iv, iv_length);
+		crypt_backend_memcpy(alg_iv->iv, iv, iv_length);
 	}
 
 	len = sendmsg(ctx->opfd, &msg, 0);
@@ -211,8 +200,8 @@ int crypt_cipher_check_kernel(const char *name, const char *mode,
 			      const char *integrity, size_t key_length)
 {
 	struct crypt_cipher_kernel c;
-	char mode_name[64], tmp_salg_name[180], *real_mode = NULL, *cipher_iv = NULL, *key;
-	const char *salg_type;
+	char mode_name[64], tmp_salg_name[180], *cipher_iv = NULL, *key;
+	const char *salg_type, *real_mode;
 	bool aead;
 	int r;
 	struct sockaddr_alg sa = {
@@ -220,6 +209,7 @@ int crypt_cipher_check_kernel(const char *name, const char *mode,
 	};
 
 	aead = integrity && strcmp(integrity, "none");
+	real_mode = NULL;
 
 	/* Remove IV if present */
 	if (mode) {
@@ -240,14 +230,22 @@ int crypt_cipher_check_kernel(const char *name, const char *mode,
 	memset(tmp_salg_name, 0, sizeof(tmp_salg_name));
 
 	/* FIXME: this is duplicating a part of devmapper backend */
-	if (aead && !strcmp(integrity, "poly1305"))
-		r = snprintf(tmp_salg_name, sizeof(tmp_salg_name), "rfc7539(%s,%s)", name, integrity);
-	else if (!real_mode)
-		r = snprintf(tmp_salg_name, sizeof(tmp_salg_name), "%s", name);
-	else if (aead && !strcmp(real_mode, "ccm"))
-		r = snprintf(tmp_salg_name, sizeof(tmp_salg_name), "rfc4309(%s(%s))", real_mode, name);
-	else
-		r = snprintf(tmp_salg_name, sizeof(tmp_salg_name), "%s(%s)", real_mode, name);
+	if (aead) {
+		/* In AEAD, mode parameter can be just IV like "random" */
+		if (!strcmp(integrity, "poly1305"))
+			r = snprintf(tmp_salg_name, sizeof(tmp_salg_name), "rfc7539(%s,%s)", name, integrity);
+		else if (!real_mode)
+			r = snprintf(tmp_salg_name, sizeof(tmp_salg_name), "%s", name);
+		else if (!strcmp(real_mode, "ccm"))
+			r = snprintf(tmp_salg_name, sizeof(tmp_salg_name), "rfc4309(%s(%s))", real_mode, name);
+		else
+			r = snprintf(tmp_salg_name, sizeof(tmp_salg_name), "%s(%s)", real_mode, name);
+	} else {
+		if (!mode)
+			r = snprintf(tmp_salg_name, sizeof(tmp_salg_name), "%s", name);
+		else
+			r = snprintf(tmp_salg_name, sizeof(tmp_salg_name), "%s(%s)", real_mode ?: mode_name, name);
+	}
 
 	if (r < 0 || (size_t)r >= sizeof(tmp_salg_name))
 		return -EINVAL;

@@ -1,22 +1,9 @@
+// SPDX-License-Identifier: LGPL-2.1-or-later
 /*
  * Cipher performance check
  *
  * Copyright (C) 2018-2024 Red Hat, Inc. All rights reserved.
  * Copyright (C) 2018-2024 Milan Broz
- *
- * This file is free software; you can redistribute it and/or
- * modify it under the terms of the GNU Lesser General Public
- * License as published by the Free Software Foundation; either
- * version 2.1 of the License, or (at your option) any later version.
- *
- * This file is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
- * Lesser General Public License for more details.
- *
- * You should have received a copy of the GNU Lesser General Public
- * License along with this file; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
 #include <errno.h>
@@ -55,43 +42,36 @@ static int time_ms(struct timespec *start, struct timespec *end, double *ms)
 	return 0;
 }
 
-static int cipher_perf_one(const char *name, const char *mode, char *buffer, size_t buffer_size,
-			  const char *key, size_t key_size, const char *iv, size_t iv_size, int enc)
+static int cipher_perf_one(struct crypt_cipher_kernel *cipher, char *buffer, size_t buffer_size,
+			   const char *iv, size_t iv_size, int enc)
 {
-	struct crypt_cipher_kernel cipher;
 	size_t done = 0, block = CIPHER_BLOCK_BYTES;
 	int r;
 
 	if (buffer_size < block)
 		block = buffer_size;
 
-	r = crypt_cipher_init_kernel(&cipher, name, mode, key, key_size);
-	if (r < 0)
-		return r;
-
 	while (done < buffer_size) {
 		if ((done + block) > buffer_size)
 			block = buffer_size - done;
 
 		if (enc)
-			r = crypt_cipher_encrypt_kernel(&cipher, &buffer[done], &buffer[done],
+			r = crypt_cipher_encrypt_kernel(cipher, &buffer[done], &buffer[done],
 						 block, iv, iv_size);
 		else
-			r = crypt_cipher_decrypt_kernel(&cipher, &buffer[done], &buffer[done],
+			r = crypt_cipher_decrypt_kernel(cipher, &buffer[done], &buffer[done],
 						 block, iv, iv_size);
 		if (r < 0)
-			break;
+			return r;
 
 		done += block;
 	}
 
-	crypt_cipher_destroy_kernel(&cipher);
-
-	return r;
+	return 0;
 }
-static int cipher_measure(const char *name, const char *mode, char *buffer, size_t buffer_size,
-			  const char *key, size_t key_size, const char *iv, size_t iv_size,
-			  int encrypt, double *ms)
+
+static int cipher_measure(struct crypt_cipher_kernel *cipher, char *buffer, size_t buffer_size,
+			  const char *iv, size_t iv_size, int encrypt, double *ms)
 {
 	struct timespec start, end;
 	int r;
@@ -103,7 +83,7 @@ static int cipher_measure(const char *name, const char *mode, char *buffer, size
 	if (clock_gettime(CLOCK_MONOTONIC_RAW, &start) < 0)
 		return -EINVAL;
 
-	r = cipher_perf_one(name, mode, buffer, buffer_size, key, key_size, iv, iv_size, encrypt);
+	r = cipher_perf_one(cipher, buffer, buffer_size, iv, iv_size, encrypt);
 	if (r < 0)
 		return r;
 
@@ -131,15 +111,20 @@ int crypt_cipher_perf_kernel(const char *name, const char *mode, char *buffer, s
 			     const char *key, size_t key_size, const char *iv, size_t iv_size,
 			     double *encryption_mbs, double *decryption_mbs)
 {
+	struct crypt_cipher_kernel cipher;
 	double ms_enc, ms_dec, ms;
 	int r, repeat_enc, repeat_dec;
+
+	r = crypt_cipher_init_kernel(&cipher, name, mode, key, key_size);
+	if (r < 0)
+		return r;
 
 	ms_enc = 0.0;
 	repeat_enc = 1;
 	while (ms_enc < 1000.0) {
-		r = cipher_measure(name, mode, buffer, buffer_size, key, key_size, iv, iv_size, 1, &ms);
+		r = cipher_measure(&cipher, buffer, buffer_size, iv, iv_size, 1, &ms);
 		if (r < 0)
-			return r;
+			goto out;
 		ms_enc += ms;
 		repeat_enc++;
 	}
@@ -147,9 +132,9 @@ int crypt_cipher_perf_kernel(const char *name, const char *mode, char *buffer, s
 	ms_dec = 0.0;
 	repeat_dec = 1;
 	while (ms_dec < 1000.0) {
-		r = cipher_measure(name, mode, buffer, buffer_size, key, key_size, iv, iv_size, 0, &ms);
+		r = cipher_measure(&cipher, buffer, buffer_size, iv, iv_size, 0, &ms);
 		if (r < 0)
-			return r;
+			goto out;
 		ms_dec += ms;
 		repeat_dec++;
 	}
@@ -157,5 +142,8 @@ int crypt_cipher_perf_kernel(const char *name, const char *mode, char *buffer, s
 	*encryption_mbs = speed_mbs(buffer_size * repeat_enc, ms_enc);
 	*decryption_mbs = speed_mbs(buffer_size * repeat_dec, ms_dec);
 
-	return  0;
+	r = 0;
+out:
+	crypt_cipher_destroy_kernel(&cipher);
+	return r;
 }

@@ -1,27 +1,14 @@
+// SPDX-License-Identifier: LGPL-2.1-or-later
 /*
  * GCRYPT crypto backend implementation
  *
  * Copyright (C) 2010-2024 Red Hat, Inc. All rights reserved.
  * Copyright (C) 2010-2024 Milan Broz
- *
- * This file is free software; you can redistribute it and/or
- * modify it under the terms of the GNU Lesser General Public
- * License as published by the Free Software Foundation; either
- * version 2.1 of the License, or (at your option) any later version.
- *
- * This file is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
- * Lesser General Public License for more details.
- *
- * You should have received a copy of the GNU Lesser General Public
- * License along with this file; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include <string.h>
 #include <stdio.h>
 #include <errno.h>
+#include <strings.h>
 #include <gcrypt.h>
 #include <pthread.h>
 #include "crypto_backend_internal.h"
@@ -64,7 +51,6 @@ static void crypt_hash_test_whirlpool_bug(void)
 {
 	struct crypt_hash *h;
 	char buf[2] = "\0\0", hash_out1[64], hash_out2[64];
-	int r;
 
 	if (crypto_backend_whirlpool_bug >= 0)
 		return;
@@ -74,16 +60,16 @@ static void crypt_hash_test_whirlpool_bug(void)
 		return;
 
 	/* One shot */
-	if ((r = crypt_hash_write(h, &buf[0], 2)) ||
-	    (r = crypt_hash_final(h, hash_out1, 64))) {
+	if (crypt_hash_write(h, &buf[0], 2) ||
+	    crypt_hash_final(h, hash_out1, 64)) {
 		crypt_hash_destroy(h);
 		return;
 	}
 
 	/* Split buf (crypt_hash_final resets hash state) */
-	if ((r = crypt_hash_write(h, &buf[0], 1)) ||
-	    (r = crypt_hash_write(h, &buf[1], 1)) ||
-	    (r = crypt_hash_final(h, hash_out2, 64))) {
+	if (crypt_hash_write(h, &buf[0], 1) ||
+	    crypt_hash_write(h, &buf[1], 1) ||
+	    crypt_hash_final(h, hash_out2, 64)) {
 		crypt_hash_destroy(h);
 		return;
 	}
@@ -263,7 +249,7 @@ int crypt_hash_final(struct crypt_hash *ctx, char *buffer, size_t length)
 	if (!hash)
 		return -EINVAL;
 
-	memcpy(buffer, hash, length);
+	crypt_backend_memcpy(buffer, hash, length);
 	crypt_hash_restart(ctx);
 
 	return 0;
@@ -337,7 +323,7 @@ int crypt_hmac_final(struct crypt_hmac *ctx, char *buffer, size_t length)
 	if (!hash)
 		return -EINVAL;
 
-	memcpy(buffer, hash, length);
+	crypt_backend_memcpy(buffer, hash, length);
 	crypt_hmac_restart(ctx);
 
 	return 0;

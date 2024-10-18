@@ -1,29 +1,17 @@
+// SPDX-License-Identifier: LGPL-2.1-or-later
 /*
  * crypto backend implementation
  *
  * Copyright (C) 2010-2024 Red Hat, Inc. All rights reserved.
  * Copyright (C) 2010-2024 Milan Broz
- *
- * This file is free software; you can redistribute it and/or
- * modify it under the terms of the GNU Lesser General Public
- * License as published by the Free Software Foundation; either
- * version 2.1 of the License, or (at your option) any later version.
- *
- * This file is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
- * Lesser General Public License for more details.
- *
- * You should have received a copy of the GNU Lesser General Public
- * License along with this file; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
+
 #ifndef _CRYPTO_BACKEND_INTERNAL_H
 #define _CRYPTO_BACKEND_INTERNAL_H
 
 #include "crypto_backend.h"
 
-/* internal PBKDF2 implementation */
+/* Internal PBKDF2 implementation */
 int pkcs5_pbkdf2(const char *hash,
 		 const char *P, size_t Plen,
 		 const char *S, size_t Slen,
@@ -59,17 +47,6 @@ int crypt_bitlk_decrypt_key_kernel(const void *key, size_t key_length,
 				   const char *tag, size_t tag_length);
 
 /* Internal implementation for constant time memory comparison */
-static inline int crypt_internal_memeq(const void *m1, const void *m2, size_t n)
-{
-	const unsigned char *_m1 = (const unsigned char *) m1;
-	const unsigned char *_m2 = (const unsigned char *) m2;
-	unsigned char result = 0;
-	size_t i;
-
-	for (i = 0; i < n; i++)
-		result |= _m1[i] ^ _m2[i];
-
-	return result;
-}
+int crypt_internal_memeq(const void *m1, const void *m2, size_t n);
 
 #endif /* _CRYPTO_BACKEND_INTERNAL_H */

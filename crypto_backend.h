@@ -1,23 +1,11 @@
+// SPDX-License-Identifier: LGPL-2.1-or-later
 /*
  * crypto backend implementation
  *
  * Copyright (C) 2010-2024 Red Hat, Inc. All rights reserved.
  * Copyright (C) 2010-2024 Milan Broz
- *
- * This file is free software; you can redistribute it and/or
- * modify it under the terms of the GNU Lesser General Public
- * License as published by the Free Software Foundation; either
- * version 2.1 of the License, or (at your option) any later version.
- *
- * This file is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
- * Lesser General Public License for more details.
- *
- * You should have received a copy of the GNU Lesser General Public
- * License along with this file; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
+
 #ifndef _CRYPTO_BACKEND_H
 #define _CRYPTO_BACKEND_H
 
@@ -148,15 +136,10 @@ int crypt_bitlk_decrypt_key(const void *key, size_t key_length,
 			    const char *tag, size_t tag_length);
 
 /* Memzero helper (memset on stack can be optimized out) */
-static inline void crypt_backend_memzero(void *s, size_t n)
-{
-#ifdef HAVE_EXPLICIT_BZERO
-	explicit_bzero(s, n);
-#else
-	volatile uint8_t *p = (volatile uint8_t *)s;
-	while(n--) *p++ = 0;
-#endif
-}
+void crypt_backend_memzero(void *s, size_t n);
+
+/* Memcpy helper to avoid spilling sensitive data through additional registers */
+void *crypt_backend_memcpy(void *dst, const void *src, size_t n);
 
 /* Memcmp helper (memcmp in constant time) */
 int crypt_backend_memeq(const void *m1, const void *m2, size_t n);
